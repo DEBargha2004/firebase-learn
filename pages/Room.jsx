@@ -9,14 +9,17 @@ import {
   where,
   setDoc,
   addDoc,
-  serverTimestamp
+  serverTimestamp,
+  orderBy,
+  getDoc
 } from 'firebase/firestore'
 import { useUser } from '@clerk/clerk-react'
+import Message from '../components/Message'
 
 function Room () {
   const { roomInfo, setRoomInfo } = useContext(AppData)
   const { user } = useUser()
-  const [messages, setMessages] = useState([ ])
+  const [messages, setMessages] = useState([])
   const [displayInfo, setDisplayInfo] = useState({
     width: window.innerWidth,
     height: window.innerHeight
@@ -45,14 +48,14 @@ function Room () {
     )
     const messageQuery = query(
       collection(database, `rooms/${roomInfo.roomId}/conversations`),
-      where('room_id', '==', roomInfo.roomId)
+      where('room_id', '==', roomInfo.roomId),
+      orderBy('createdAt')
     )
-    const unsubmessage = onSnapshot(messageQuery,snapshot => {
+    const unsubmessage = onSnapshot(messageQuery, snapshot => {
       const messages = []
       snapshot.forEach(doc => {
-        messages.push({...doc.data(),id:doc.id})
+        messages.push({ ...doc.data(), id: doc.id })
       })
-      console.log(messages);
       setMessages([...messages])
     })
 
@@ -72,17 +75,31 @@ function Room () {
   }
   const handleSubmit = async e => {
     e.preventDefault()
+
     if (!e.target[0].value) return
-    const messageData = {
-      room_id: roomInfo.roomId,
-      text: e.target[0].value,
-      sender_id: user.id,
-      sender_name : user.fullName
-    }
-    await addDoc(
-      collection(database, `rooms/${roomInfo.roomId}/conversations`),
-      { ...messageData, timeStamp: serverTimestamp() }
+
+    const isInParticipants = await getDoc(
+      doc(
+        collection(database, `rooms/${roomInfo.roomId}/participants`),
+        user.id
+      )
     )
+    if (isInParticipants.exists()) {
+      const messageData = {
+        room_id: roomInfo.roomId,
+        text: e.target[0].value,
+        sender_id: user.id,
+        sender_name: user.fullName,
+        user_img : user.imageUrl
+      }
+      await addDoc(
+        collection(database, `rooms/${roomInfo.roomId}/conversations`),
+        { ...messageData, createdAt: serverTimestamp() }
+      )
+    } else {
+      alert('you are not a participant enter room again with credentials')
+    }
+    e.target[0].value = ''
   }
   useEffect(() => {
     window.addEventListener('resize', handleResize)
@@ -112,18 +129,7 @@ function Room () {
         style={{ height: `${displayInfo.height - 64}px` }}
       >
         {messages.map((item, index) => (
-          <div className={`w-full relative h-[30px] mb-1`}>
-            <div
-              className={` absolute max-w-[300px] text-white py-1 px-2 ${
-                item.sender_id === user.id
-                  ? 'bg-green-500 right-2'
-                  : 'bg-blue-500 left-2'
-              }`}
-            >
-              <span>{item.sender_name} : </span>
-              <span>{item.text}</span>
-            </div>
-          </div>
+          <Message item={item} />
         ))}
         <div className='h-[50px] w-full'></div>
         <form
